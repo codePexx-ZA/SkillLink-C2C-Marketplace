@@ -27,40 +27,46 @@ function getAdminDisplayName(PDO $pdo, int $userId): string
 
 function getAdminDashboardStats(PDO $pdo): array
 {
-    $stats = [
-        "total_users" => 0,
-        "users_this_week" => 0,
-        "active_listings" => 0,
-        "pending_review" => 0,
-        "open_disputes" => 0,
-        "unassigned_disputes" => 0,
+    $counts = $pdo->query(
+        "SELECT user_counts.total_users, user_counts.users_this_week,
+                listing_counts.active_listings, listing_counts.pending_review,
+                dispute_counts.open_disputes, dispute_counts.unassigned_disputes,
+                action_counts.completed_account_actions
+         FROM (
+             SELECT COUNT(*) AS total_users,
+                    COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 END) AS users_this_week
+             FROM users
+         ) AS user_counts
+         CROSS JOIN (
+             SELECT COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_listings,
+                    COUNT(CASE WHEN status = 'pending_review' THEN 1 END) AS pending_review
+             FROM listings
+             WHERE status IN ('active', 'pending_review')
+         ) AS listing_counts
+         CROSS JOIN (
+             SELECT COUNT(*) AS open_disputes,
+                    COUNT(CASE WHEN assigned_admin_id IS NULL THEN 1 END) AS unassigned_disputes
+             FROM disputes
+             WHERE status = 'open'
+         ) AS dispute_counts
+         CROSS JOIN (
+             SELECT COUNT(*) AS completed_account_actions
+             FROM user_account_actions
+             WHERE status = 'completed'
+         ) AS action_counts"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    return [
+        "total_users" => (int) $counts["total_users"],
+        "users_this_week" => (int) $counts["users_this_week"],
+        "active_listings" => (int) $counts["active_listings"],
+        "pending_review" => (int) $counts["pending_review"],
+        "open_disputes" => (int) $counts["open_disputes"],
+        "unassigned_disputes" => (int) $counts["unassigned_disputes"],
         "pending_payout_total" => 0.0,
         "pending_payout_sellers" => 0,
-        "completed_account_actions" => 0,
+        "completed_account_actions" => (int) $counts["completed_account_actions"],
     ];
-
-    $stats["total_users"] = (int) $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    $stats["users_this_week"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
-    )->fetchColumn();
-    $stats["active_listings"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM listings WHERE status = 'active'"
-    )->fetchColumn();
-    $stats["pending_review"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM listings WHERE status = 'pending_review'"
-    )->fetchColumn();
-    $stats["open_disputes"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM disputes WHERE status = 'open'"
-    )->fetchColumn();
-    $stats["unassigned_disputes"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM disputes WHERE status = 'open' AND assigned_admin_id IS NULL"
-    )->fetchColumn();
-
-    $stats["completed_account_actions"] = (int) $pdo->query(
-        "SELECT COUNT(*) FROM user_account_actions WHERE status = 'completed'"
-    )->fetchColumn();
-
-    return $stats;
 }
 
 function getPendingListingApprovals(PDO $pdo): array
